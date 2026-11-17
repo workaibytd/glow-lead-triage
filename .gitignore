@@ -1,0 +1,36 @@
+# Secrets — NEVER commit these
+.env
+.env.*
+*.env
+credentials.json
+client_secret*.json
+service-account*.json
+secrets/
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Personal docs — this repo is code + technical docs only
+resume_*.pdf
+interview_*.pdf
+freelance_*.pdf
+*_strategy_*.pdf
+
+# n8n local state (if you ever run n8n inside this repo)
+n8n-state/
+.sqlite
