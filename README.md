@@ -162,4 +162,5 @@ Built by **Kartika Titian Delila** — freelance automation engineer & AI evalua
 - Email: tikaatd.work.ai@gmail.com
 - LinkedIn: linkedin.com/in/titian-delila-693aa342b
 - Portfolio: notion.com/p/Glow-Lead-Triage-AI-Lead-Qualification-System-41b9326e988980a0aabbef57c5263f22
+
 Portfolio project, November 2026. Built with $0 budget on 100% free-tier tools.
