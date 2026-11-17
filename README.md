@@ -157,10 +157,9 @@ MIT — see the license terms below. The system prompt, workflow structure, eval
 
 ## Contact
 
-Built by **[YOUR NAME]** — freelance automation engineer & AI evaluation specialist.
+Built by **Kartika Titian Delila** — freelance automation engineer & AI evaluation specialist.
 
-- Email: [your.email@example.com]
-- LinkedIn: [linkedin.com/in/yourname]
-- Portfolio: see project root for Notion portfolio link
-
+- Email: tikaatd.work.ai@gmail.com
+- LinkedIn: linkedin.com/in/titian-delila-693aa342b
+- Portfolio: notion.com/p/Glow-Lead-Triage-AI-Lead-Qualification-System-41b9326e988980a0aabbef57c5263f22
 Portfolio project, November 2026. Built with $0 budget on 100% free-tier tools.
