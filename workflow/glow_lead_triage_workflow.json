@@ -1,0 +1,284 @@
+{
+  "name": "Glow Lead Triage - Production Ready",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "glow-wa-input",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0001-4000-8000-000000000001",
+      "name": "Webhook WA",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "glow-wa-input-uuid"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Normalize data dari webhook WA\n// FIX: handle nested body structure di n8n v2.x (data ada di $json.body)\nconst input = $json;\nconst body = input.body || input;\nconst raw = body.raw || {};\n\n// Test mode (curl/Python): body berisi field langsung\nif (Object.keys(raw).length === 0) {\n  return {\n    json: {\n      timestamp: body.timestamp || new Date().toISOString(),\n      channel: body.channel || 'wa',\n      nama: body.nama || '',\n      kontak: body.kontak || '',\n      budget: body.budget || '',\n      pesan: body.pesan || ''\n    }\n  };\n}\n\n// Real mode: data dari Google Form via Apps Script\nreturn {\n  json: {\n    timestamp: body.timestamp || new Date().toISOString(),\n    channel: body.channel || 'wa',\n    nama: raw['Nama klien (dari chat WA)'] || '',\n    kontak: raw['No. WA / kontak klien'] || '',\n    budget: raw['Budget klien'] || '',\n    pesan: raw['Copy-paste chat WA asli'] || ''\n  }\n};"
+      },
+      "id": "1a2b3c4d-0002-4000-8000-000000000002",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "{\n  \"model\": \"openai/gpt-oss-120b\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Kamu adalah asisten klasifikasi lead untuk klinik kecantikan \\\"Glow Aesthetic Clinic\\\".\\n\\nTugasmu: baca pesan lead dari pasien calon, lalu klasifikasi ke 1 dari 4 kategori:\\n- hot   = Minat treatment spesifik (botox/filler/laser/PRP/peel), budget jelas, timeline \\\"minggu ini/ASAP/weekend\\\"\\n- warm  = Sebut concern/treatment tapi \\\"mau konsultasi dulu\\\", \\\"belum siap\\\", \\\"mau pikirin\\\", \\\"belum tahu kapan\\\"\\n- cold  = Cuma nanya promo/harga/trial/newsletter, belum ada masalah kulit, \\\"iseng survey\\\"\\n- spam  = Promo judi/pinjaman/jasa follower/link bit.ly/test/random字符\\n\\nOutput WAJIB JSON dengan format PERSIS ini, tanpa markdown code fence, tanpa penjelasan tambahan:\\n{\\n  \\\"kategori\\\": \\\"hot|warm|cold|spam\\\",\\n  \\\"alasan\\\": \\\"<1 kalimat singkat dalam Bahasa Indonesia>\\\",\\n  \\\"score\\\": <integer 1-10, di mana 10 = paling siap closing>\\n}\\n\\nAturan:\\n- Baca singkatnya: WA = typo/singkatan/emoji minim, IG = emoji banyak, Lead Ads = structured\\n- Kalau ragu antara 2 kategori, pilih yang lebih konservatif (warm daripada hot, cold daripada warm)\\n- \\\"Tidak disebut\\\" di budget = jangan langsung cold, cek konteks pesannya\\n- Untuk spam: score = 1, alasan singkat (\\\"spam promo judi\\\" / \\\"spam pinjaman\\\" / \\\"test/random\\\")\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.pesan }}\"\n    }\n  ],\n  \"max_tokens\": 500,\n  \"temperature\": 0\n}",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0003-4000-8000-000000000003",
+      "name": "Groq AI Classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const aiContent = $json.choices?.[0]?.message?.content || '';\n\nif (!aiContent) {\n  throw new Error('AI response kosong');\n}\n\nlet clean = aiContent.trim();\nif (clean.startsWith('```')) {\n  clean = clean.replace(/^```(?:json)?\\s*/i, '');\n  clean = clean.replace(/\\s*```\\s*$/i, '');\n  clean = clean.trim();\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(clean);\n} catch (e) {\n  const match = clean.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    try {\n      parsed = JSON.parse(match[0]);\n    } catch (e2) {\n      throw new Error('AI response bukan JSON valid: ' + clean.substring(0, 100));\n    }\n  } else {\n    throw new Error('AI response tanpa JSON: ' + clean.substring(0, 100));\n  }\n}\n\nconst kategori = (parsed.kategori || '').toLowerCase();\nconst alasan = parsed.alasan || '';\nconst score = parseInt(parsed.score, 10);\n\nif (!['hot', 'warm', 'cold', 'spam'].includes(kategori)) {\n  throw new Error('Kategori tidak valid: ' + kategori);\n}\nif (isNaN(score) || score < 1 || score > 10) {\n  throw new Error('Score tidak valid: ' + parsed.score);\n}\n\nreturn {\n  json: {\n    kategori: kategori,\n    alasan: alasan,\n    score: score\n  }\n};"
+      },
+      "id": "1a2b3c4d-0004-4000-8000-000000000004",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "timestamp",
+              "value": "={{ $('Normalize Data').item.json.timestamp }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "channel",
+              "value": "={{ $('Normalize Data').item.json.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "nama",
+              "value": "={{ $('Normalize Data').item.json.nama }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "kontak",
+              "value": "={{ $('Normalize Data').item.json.kontak }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "budget",
+              "value": "={{ $('Normalize Data').item.json.budget }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "pesan",
+              "value": "={{ $('Normalize Data').item.json.pesan }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "kategori",
+              "value": "={{ $json.kategori }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "alasan",
+              "value": "={{ $json.alasan }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "score",
+              "value": "={{ $json.score }}",
+              "type": "number"
+            },
+            {
+              "id": "a10",
+              "name": "notif_sent",
+              "value": "false",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0005-4000-8000-000000000005",
+      "name": "Combine Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0006-4000-8000-000000000006",
+      "name": "Write to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.kategori }}",
+              "rightValue": "hot",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0007-4000-8000-000000000007",
+      "name": "IF Hot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "chatId": "123456789",
+        "text": "=🚨 HOT LEAD — Glow Aesthetic Clinic\n\n👤 Nama: {{ $json.nama }}\n📱 Kontak: {{ $json.kontak }}\n💰 Budget: {{ $json.budget }}\n💬 Channel: {{ $json.channel }}\n\n📝 Pesan:\n{{ $json.pesan }}\n\n🏷️ Kategori: {{ $json.kategori }}\n⭐ Score: {{ $json.score }}/10\n📝 Alasan: {{ $json.alasan }}\n\n⏰ {{ $json.timestamp }}",
+        "additionalFields": {}
+      },
+      "id": "1a2b3c4d-0008-4000-8000-000000000008",
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1540, -100]
+    }
+  ],
+  "connections": {
+    "Webhook WA": {
+      "main": [
+        [
+          {
+            "node": "Normalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Data": {
+      "main": [
+        [
+          {
+            "node": "Groq AI Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq AI Classify": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Combine Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Fields": {
+      "main": [
+        [
+          {
+            "node": "Write to Sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Hot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Hot?": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
+}
